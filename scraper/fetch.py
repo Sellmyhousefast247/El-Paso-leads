@@ -61,7 +61,18 @@ COUNTY = "El Paso"
 STATE = "TX"
 
 SHERIFF_URL = "https://www.epcounty.com/1192/Sheriff-Sales"
-CAD_BASE = "https://epcad.org"
+
+# Enrichment: City of El Paso GIS parcels (public ArcGIS FeatureServer). Same
+# schema family as the Waco CAD layer used for McLennan. Keyed by prop_id (the
+# CAD account number that the Sheriff notices carry). Note: EPCAD's own site
+# (epcad.org) is a Cloudflare-gated HTML app that blocks datacenter/CI IPs, so
+# this JSON ArcGIS API is used instead -- it returns owner, situs, mailing and
+# appraised value in one query.
+PARCEL_API_URL = ("https://gis.elpasotexas.gov/dev/rest/services/"
+                  "Hosted/parcels2021/FeatureServer/0/query")
+PARCEL_FIELDS = ("file_as_na,situs_num,situs_stre,situs_dir,situs_unit,"
+                 "situs_city,situs_zip,addr_line2,addr_city,addr_state,"
+                 "addr_zip,prop_id,geo_id,prop_val_y")
 
 LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "7"))
 REQUEST_TIMEOUT = 45
@@ -303,106 +314,120 @@ def fetch_sheriff_records(session) -> list:
     return records
 
 # ---------------------------------------------------------------------------
-# El Paso CAD (epcad.org) enrichment -- open, no gate
+# El Paso parcel enrichment (City of El Paso GIS, public ArcGIS FeatureServer)
 # ---------------------------------------------------------------------------
-DETAIL_HREF_RE = re.compile(r"/Search/Details/(\d+)/(\d+)")
+def _arc_val(x) -> str:
+    s = _norm_ws(x)
+    return "" if s.upper() in ("NULL", "NONE") else s
 
 
-def _cad_field(text: str, label: str, nexts: list) -> str:
-    """Grab the value after `label:` up to the next known label."""
-    stop = "|".join(re.escape(n) for n in nexts)
-    m = re.search(re.escape(label) + r"\s*:?\s*(.+?)\s*(?:" + stop + r")",
-                  text, re.I | re.S)
-    return _norm_ws(m.group(1)) if m else ""
+def _sql_lit(s: str) -> str:
+    return s.upper().replace("'", "''")
 
 
-def _parse_cad_mailing(line: str) -> tuple:
-    """'12133 ALEX GUERRERO CIR EL PASO TX 79936-4486' -> (street, city, state, zip).
-    Also handles out-of-county / out-of-state mailing lines with a comma."""
-    line = _norm_ws(line)
-    st = STATE
-    stm = re.search(r"\b([A-Z]{2})\.?\s+(\d{5})(?:-\d{4})?\s*$", line)
-    if stm:
-        st = stm.group(1).upper()
-    street, city, zp = _split_addr_line(line)
-    if not city:
-        # generic "STREET CITY ST ZIP" with an unknown city token
-        m = re.search(r"^(.*?)\s+([A-Za-z][A-Za-z .]+?)\s+([A-Z]{2})\.?\s+(\d{5})", line)
-        if m:
-            return (_norm_ws(m.group(1)).title(), _norm_ws(m.group(2)).title(),
-                    m.group(3).upper(), m.group(4))
-    return street, city, st, zp
-
-
-def _cad_lookup(session, keyword: str) -> dict:
-    """Search EPCAD by a keyword (account no or address), open the first
-    result's detail page and return owner/situs/mailing/legal/exemptions."""
+def _arcgis_query(session, where: str, count: int = 5) -> list:
+    params = {
+        "where": where, "outFields": PARCEL_FIELDS,
+        "returnGeometry": "false", "f": "json", "resultRecordCount": count,
+    }
     try:
-        s = session.get(f"{CAD_BASE}/Search",
-                        params={"Keywords": keyword}, timeout=REQUEST_TIMEOUT)
-        m = DETAIL_HREF_RE.search(s.text)
-        if not m:
-            return {}
-        pid, year = m.group(1), m.group(2)
-        d = session.get(f"{CAD_BASE}/Search/Details/{pid}/{year}",
-                        timeout=REQUEST_TIMEOUT)
-        txt = _norm_ws(BeautifulSoup(d.text, "lxml").get_text(" "))
-        owner = _cad_field(txt, "Owners Name", ["Mailing Address", "Owner ID"])
-        situs = _cad_field(txt, "Location Address", ["Neighborhood", "Mapsco", "Owners Name"])
-        mail = _cad_field(txt, "Mailing Address", ["Owner ID", "Ownership"])
-        legal = _cad_field(txt, "Legal Description",
-                           ["Property Use Code", "Property Use Description", "Location Address"])
-        exem = ""
-        em = re.search(r"Exemptions\s+([A-Z0-9 ,]{1,30}?)\s*(?:Website|SITE LINKS|$)", txt)
-        if em:
-            exem = _norm_ws(em.group(1))
-        return {"pid": pid, "owner": owner, "situs": situs, "mailing": mail,
-                "legal": legal, "exem": exem}
+        r = session.get(PARCEL_API_URL, params=params, timeout=REQUEST_TIMEOUT)
+        return r.json().get("features", []) or []
     except Exception as exc:
-        log.debug("CAD lookup '%s' error: %s", keyword, exc)
-        return {}
+        log.debug("ArcGIS query error: %s", exc)
+        return []
+
+
+def _situs_from_arc(att: dict) -> tuple:
+    # situs_stre is the street name; situs_dir carries the suffix/type (CIR,
+    # ST, DR ...). situs_zip is often blank on this layer.
+    num = _arc_val(att.get("situs_num"))
+    stre = _arc_val(att.get("situs_stre"))
+    suf = _arc_val(att.get("situs_dir"))
+    unit = _arc_val(att.get("situs_unit"))
+    street = _norm_ws(" ".join(x for x in (num, stre, suf, unit) if x))
+    city = _arc_val(att.get("situs_city")).title()
+    zp = _arc_val(att.get("situs_zip"))[:5]
+    return street.title(), city, zp
+
+
+def _mailing_from_arc(att: dict) -> tuple:
+    return (_arc_val(att.get("addr_line2")).title(),
+            _arc_val(att.get("addr_city")).title(),
+            _arc_val(att.get("addr_state")) or STATE,
+            _arc_val(att.get("addr_zip"))[:5])
+
+
+def _addr_key(addr: str) -> tuple:
+    """(house number, core street) for reverse situs lookup; situs_stre
+    excludes the suffix, so drop a trailing suffix word and a leading dir."""
+    m = re.match(r"\s*(\d+)\s+(.*)", addr or "")
+    if not m:
+        return "", ""
+    rest = _norm_ws(m.group(2))
+    rest = re.sub(r"\s+(#|APT|UNIT|STE|SUITE|BLDG|LOT)\b.*$", "", rest, flags=re.I)
+    rest = re.sub(r"\s+(RD|ROAD|ST|STREET|DR|DRIVE|LN|LANE|CT|COURT|CIR|CIRCLE|"
+                  r"TRL|TRAIL|AVE|AVENUE|BLVD|WAY|PASS|PATH|LOOP|RUN|CV|COVE|"
+                  r"BND|BEND|PKWY|PARKWAY|TER|TERRACE|PL|PLACE|PT|POINT|XING|"
+                  r"CROSSING|PARK)\.?$", "", rest, flags=re.I).strip()
+    rest = re.sub(r"^(N|S|E|W|NE|NW|SE|SW)\s+", "", rest, flags=re.I).strip()
+    return m.group(1), rest
+
+
+def _apply_parcel(rec, att: dict) -> None:
+    owner = _arc_val(att.get("file_as_na"))
+    if owner and not rec.owner:
+        rec.owner = owner
+    ps, pc, pz = _situs_from_arc(att)
+    if ps and not rec.prop_address:
+        rec.prop_address = ps
+    if pc and not rec.prop_city:
+        rec.prop_city = pc
+    if pz and not rec.prop_zip:
+        rec.prop_zip = pz
+    ms, mc, mst, mz = _mailing_from_arc(att)
+    if ms and not rec.mail_address:
+        rec.mail_address, rec.mail_city, rec.mail_state, rec.mail_zip = ms, mc, mst, mz
+    if not rec.amount:
+        try:
+            rec.amount = float(att.get("prop_val_y") or 0)
+        except (TypeError, ValueError):
+            pass
 
 
 def enrich_cad(records: list) -> None:
+    """Enrich Sheriff records against the City of El Paso parcels layer: first
+    by CAD account number (prop_id), then by the situs street address."""
     session = requests.Session()
     session.headers["User-Agent"] = _UA
     n_hit = 0
     todo = [r for r in records if not r.owner or not r.mail_address]
-    log.info("EPCAD enrichment for %d records...", len(todo))
+    log.info("ArcGIS parcel enrichment for %d records...", len(todo))
     for rec in todo[:CAD_MAX_LOOKUPS]:
-        keys = list(getattr(rec, "_accts", []) or [])
-        if rec.prop_address:
-            keys.append(rec.prop_address)
-        info = {}
-        for k in keys:
-            info = _cad_lookup(session, k)
-            if info.get("owner"):
+        att = None
+        # 1) by account number (prop_id) -- the reliable key
+        for acct in (getattr(rec, "_accts", []) or []):
+            if not acct.isdigit() or len(acct) > 8:
+                continue
+            feats = _arcgis_query(session, f"prop_id = {int(acct)}", count=2)
+            if len(feats) == 1:
+                att = feats[0].get("attributes", {})
                 break
-            time.sleep(0.15)
-        if not info.get("owner"):
-            continue
-        n_hit += 1
-        if not rec.owner:
-            rec.owner = info["owner"]
-        if info.get("situs"):
-            ps, pc, pz = _split_addr_line(info["situs"])
-            if ps and not rec.prop_address:
-                rec.prop_address = ps
-            if pc and not rec.prop_city:
-                rec.prop_city = pc
-            if pz and not rec.prop_zip:
-                rec.prop_zip = pz
-        if info.get("mailing") and not rec.mail_address:
-            ms, mc, mst, mz = _parse_cad_mailing(info["mailing"])
-            rec.mail_address, rec.mail_city, rec.mail_state, rec.mail_zip = ms, mc, mst, mz
-        if info.get("legal") and (not rec.legal or "Sale date" in rec.legal):
-            rec.legal = (rec.legal + " " + info["legal"]).strip()
-        if info.get("exem") and re.search(r"\bHS\b", info["exem"]):
-            # homestead = owner likely occupies; note it, do not flag absentee
-            if "HOMESTEAD" not in (rec.legal or "").upper():
-                rec.legal = (rec.legal + " [HS exemption]").strip()
-        time.sleep(0.1)
-    log.info("EPCAD enrichment: %d records enriched", n_hit)
+            time.sleep(0.1)
+        # 2) reverse by situs address
+        if att is None and rec.prop_address:
+            num, core = _addr_key(rec.prop_address)
+            if num and core:
+                feats = _arcgis_query(
+                    session, f"situs_num = '{_sql_lit(num)}' AND "
+                             f"UPPER(situs_stre) LIKE '{_sql_lit(core)}%'", count=2)
+                if len(feats) == 1:
+                    att = feats[0].get("attributes", {})
+        if att:
+            n_hit += 1
+            _apply_parcel(rec, att)
+        time.sleep(0.05)
+    log.info("ArcGIS parcel enrichment: %d records enriched", n_hit)
 
 # ---------------------------------------------------------------------------
 # Hash / dedupe + NEW-CHANGED detection
@@ -517,7 +542,7 @@ def write_outputs(records: list, start: datetime, end: datetime) -> None:
     payload = {
         "fetched_at": datetime.utcnow().isoformat(),
         "county": COUNTY,
-        "source": f"{COUNTY} County, {STATE} -- Sheriff Sale Notices + El Paso CAD",
+        "source": f"{COUNTY} County, {STATE} -- Sheriff Sale Notices + City of El Paso GIS parcels",
         "date_range": {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")},
         "total": len(records),
         "new_7d": sum(1 for r in records if (r.first_seen or "") >= week_ago),
