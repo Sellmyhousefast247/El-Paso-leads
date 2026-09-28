@@ -72,7 +72,7 @@ PARCEL_API_URL = ("https://gis.elpasotexas.gov/dev/rest/services/"
                   "Hosted/parcels2021/FeatureServer/0/query")
 PARCEL_FIELDS = ("file_as_na,situs_num,situs_stre,situs_dir,situs_unit,"
                  "situs_city,situs_zip,addr_line2,addr_city,addr_state,"
-                 "addr_zip,prop_id,geo_id,prop_val_y")
+                 "addr_zip,prop_id,geo_id,x021_appra,x021_asses")
 
 LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "7"))
 REQUEST_TIMEOUT = 45
@@ -389,8 +389,10 @@ def _apply_parcel(rec, att: dict) -> None:
     if ms and not rec.mail_address:
         rec.mail_address, rec.mail_city, rec.mail_state, rec.mail_zip = ms, mc, mst, mz
     if not rec.amount:
+        # x021_appra = appraised value; fall back to assessed. (prop_val_y is a
+        # value YEAR, not a dollar amount.)
         try:
-            rec.amount = float(att.get("prop_val_y") or 0)
+            rec.amount = float(att.get("x021_appra") or att.get("x021_asses") or 0)
         except (TypeError, ValueError):
             pass
 
