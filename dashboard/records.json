@@ -1,10 +1,10 @@
 {
-  "fetched_at": "2026-11-12T20:37:51.186208",
+  "fetched_at": "2026-11-13T20:17:28.314726",
   "county": "El Paso",
   "source": "El Paso County, TX -- Sheriff Sale Notices + City of El Paso GIS parcels",
   "date_range": {
-    "start": "2026-11-05",
-    "end": "2026-11-12"
+    "start": "2026-11-06",
+    "end": "2026-11-13"
   },
   "total": 4,
   "new_7d": 0,
@@ -24,7 +24,7 @@
       "doc_type": "Tax Foreclosure Sale",
       "cat": "foreclosure",
       "cat_label": "Tax Foreclosure Sale 2026-10-06",
-      "filed": "2026-11-12",
+      "filed": "2026-11-13",
       "owner": "RUBIO ELISEO JR & SARA M",
       "grantee": "",
       "amount": 224374.0,
@@ -48,7 +48,7 @@
       "status": "CHANGED",
       "first_seen": "2026-09-28",
       "rid": "66723e9d41a03830",
-      "content_hash": "09d0cca3172e3a06",
+      "content_hash": "3ce5f807001a33c1",
       "cat_code": "TAXFC",
       "absentee": false,
       "out_of_state": false
@@ -58,7 +58,7 @@
       "doc_type": "Sheriff Execution Sale",
       "cat": "foreclosure",
       "cat_label": "Sheriff Sale 2026-10-06",
-      "filed": "2026-11-12",
+      "filed": "2026-11-13",
       "owner": "ESTRADA BRIAN A & LETICIA J & 3",
       "grantee": "",
       "amount": 127031.0,
@@ -82,7 +82,7 @@
       "status": "CHANGED",
       "first_seen": "2026-09-28",
       "rid": "0e0e49b66ed5f0c8",
-      "content_hash": "dea312f860c62692",
+      "content_hash": "2d81f9f6d4c9f261",
       "cat_code": "FC",
       "absentee": true,
       "out_of_state": false
@@ -92,7 +92,7 @@
       "doc_type": "Tax Foreclosure Sale",
       "cat": "foreclosure",
       "cat_label": "Tax Foreclosure Sale 2026-10-06",
-      "filed": "2026-11-12",
+      "filed": "2026-11-13",
       "owner": "VALVERDE ROSA M (ET AL)",
       "grantee": "",
       "amount": 84666.0,
@@ -116,7 +116,7 @@
       "status": "CHANGED",
       "first_seen": "2026-09-28",
       "rid": "5944e36147a4a255",
-      "content_hash": "a4ff8b66f221bf0a",
+      "content_hash": "3d73690af6127b1f",
       "cat_code": "TAXFC",
       "absentee": false,
       "out_of_state": false
@@ -126,7 +126,7 @@
       "doc_type": "Sheriff Execution Sale",
       "cat": "foreclosure",
       "cat_label": "Sheriff Sale 2026-10-06",
-      "filed": "2026-11-12",
+      "filed": "2026-11-13",
       "owner": "LOPEZ PATRICIA",
       "grantee": "",
       "amount": 84329.0,
@@ -150,7 +150,7 @@
       "status": "CHANGED",
       "first_seen": "2026-09-28",
       "rid": "4d1e9d259cd57f43",
-      "content_hash": "fa606edfc2f38d6a",
+      "content_hash": "f3b4699be917fae4",
       "cat_code": "FC",
       "absentee": false,
       "out_of_state": false
