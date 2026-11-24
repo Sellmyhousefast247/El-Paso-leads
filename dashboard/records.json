@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-11-24T00:33:56.940306",
+  "fetched_at": "2026-11-24T22:53:33.862505",
   "county": "El Paso",
   "source": "El Paso County, TX -- Sheriff Sale Notices + City of El Paso GIS parcels",
   "date_range": {
@@ -45,7 +45,7 @@
         "Has address"
       ],
       "score": 78,
-      "status": "CHANGED",
+      "status": "EXISTING",
       "first_seen": "2026-09-28",
       "rid": "66723e9d41a03830",
       "content_hash": "c88fbf9e2ce07e9d",
@@ -79,7 +79,7 @@
         "Has address"
       ],
       "score": 75,
-      "status": "CHANGED",
+      "status": "EXISTING",
       "first_seen": "2026-09-28",
       "rid": "0e0e49b66ed5f0c8",
       "content_hash": "4f740403fc218b84",
@@ -113,7 +113,7 @@
         "Has address"
       ],
       "score": 73,
-      "status": "CHANGED",
+      "status": "EXISTING",
       "first_seen": "2026-09-28",
       "rid": "5944e36147a4a255",
       "content_hash": "9f81f7637e997174",
@@ -147,7 +147,7 @@
         "Has address"
       ],
       "score": 70,
-      "status": "CHANGED",
+      "status": "EXISTING",
       "first_seen": "2026-09-28",
       "rid": "4d1e9d259cd57f43",
       "content_hash": "b405970caec2f1ff",
